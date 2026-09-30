@@ -482,7 +482,7 @@ tbody tr:hover{background:var(--surface2);}
       <form id="login-form" onsubmit="handleLogin(event)">
         <div class="field">
           <label>Email Address</label>
-          <input type="email" id="login-email" placeholder="admin@aurum.io" required/>
+          <input type="email" id="login-email" placeholder="name@company.com" required/>
         </div>
         <div class="field">
           <label>Password</label>
@@ -493,7 +493,7 @@ tbody tr:hover{background:var(--surface2);}
         </button>
       </form>
       <div class="login-footer-note">
-        Demo credentials: <strong>admin@aurum.io</strong> / <strong>admin123</strong>
+        Administrator access is configured on the server.
       </div>
     </div>
   </div>
@@ -878,7 +878,7 @@ tbody tr:hover{background:var(--surface2);}
 // ═══════════════════════════════════════════════════════════════
 // API Configuration
 // ═══════════════════════════════════════════════════════════════
-const API_URL = 'http://localhost:3000/api';
+const API_URL = `${window.location.origin}/api`;
 let authToken = localStorage.getItem('authToken');
 
 // ═══════════════════════════════════════════════════════════════
@@ -1033,13 +1033,21 @@ async function loadEmployees() {
       return;
     }
     
+    const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    })[character]);
+
     const renderRow = (emp) => `
       <tr>
-        <td style="color:var(--muted);font-size:11px;font-family:monospace;">${emp.emp_id}</td>
-        <td style="color:var(--text);font-weight:500;">${emp.first_name} ${emp.last_name}</td>
-        <td style="color:var(--text2);">${emp.email || emp.department}</td>
-        <td style="color:var(--muted2);">${emp.position}</td>
-        <td style="font-weight:600;">$${emp.basic_salary.toLocaleString()}</td>
+        <td style="color:var(--muted);font-size:11px;font-family:monospace;">${escapeHtml(emp.emp_id)}</td>
+        <td style="color:var(--text);font-weight:500;">${escapeHtml(emp.first_name)} ${escapeHtml(emp.last_name)}</td>
+        <td style="color:var(--text2);">${escapeHtml(emp.email || emp.department)}</td>
+        <td style="color:var(--muted2);">${escapeHtml(emp.position)}</td>
+        <td style="font-weight:600;">$${Number(emp.basic_salary || 0).toLocaleString()}</td>
         <td><span class="stat-trend up" style="font-size:9px;">Active</span></td>
       </tr>
     `;
@@ -1061,11 +1069,19 @@ async function loadDepartments() {
       return;
     }
     
+    const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    })[character]);
+
     tbody.innerHTML = departments.map(dept => `
       <tr>
-        <td style="color:var(--text);font-weight:500;">${dept.name}</td>
-        <td style="color:var(--text2);">${dept.head || '—'}</td>
-        <td style="font-weight:600;color:var(--gold-light);">$${(dept.budget || 0).toLocaleString()}</td>
+        <td style="color:var(--text);font-weight:500;">${escapeHtml(dept.name)}</td>
+        <td style="color:var(--text2);">${escapeHtml(dept.head || '—')}</td>
+        <td style="font-weight:600;color:var(--gold-light);">$${Number(dept.budget || 0).toLocaleString()}</td>
         <td style="color:var(--muted2);">${new Date(dept.created_at).toLocaleDateString()}</td>
       </tr>
     `).join('');

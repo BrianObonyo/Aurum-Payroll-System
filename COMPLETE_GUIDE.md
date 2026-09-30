@@ -37,21 +37,19 @@ You now have a **complete full-stack payroll management system** with:
 ### Step 1: Prerequisites
 Make sure you have **Node.js** installed:
 ```bash
-node --version  # Should show v14 or higher
+node --version  # Should show v20.6 or newer
 ```
 If not installed: Download from https://nodejs.org/
+Use Node.js 20.6 or newer so the server can load `.env` directly.
 
 ### Step 2: Set Up Project
 ```bash
-# Create folder
-mkdir aurum-payroll
-cd aurum-payroll
-
-# Copy all 7 files into this folder
-
-# Install dependencies
+# Open a terminal in the project folder, then install dependencies
 npm install
 ```
+The project includes a local `.env`. If it is missing, copy `env.example` to `.env` and replace the JWT secret and administrator password with random values. The administrator password must be at least 16 characters. Never commit or share `.env`.
+
+This version currently supports SQLite. MySQL and Microsoft SQL Server connections are not configured.
 
 ### Step 3: Start Backend
 ```bash
@@ -60,15 +58,10 @@ npm start
 ✅ Server runs on: http://localhost:3000
 
 ### Step 4: Open Frontend
-- **Simple**: Double-click `index.html`
-- **Better**: In new terminal → `npx http-server -p 8080`
-  Then open: http://localhost:8080
+Open http://localhost:3000 in your browser. The backend serves the frontend and API from the same origin.
 
 ### Step 5: Login
-```
-Email: admin@aurum.io
-Password: admin123
-```
+Use the `ADMIN_EMAIL` and `ADMIN_PASSWORD` values from `.env`.
 
 ---
 

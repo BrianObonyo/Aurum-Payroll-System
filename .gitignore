@@ -1,0 +1,10 @@
+node_modules/
+package-lock.json
+.env
+.env.*
+!.env.example
+*.db
+*.sqlite
+*.sqlite3
+*.log
+npm-debug.log*

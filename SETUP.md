@@ -3,7 +3,7 @@
 ## Step 1: Install Node.js (if not already installed)
 
 Download and install from: https://nodejs.org/
-- Choose LTS version (recommended)
+- Use Node.js 20.6 or newer (required for built-in `.env` loading)
 - Verify installation: Open terminal/command prompt and type:
   ```bash
   node --version
@@ -12,23 +12,18 @@ Download and install from: https://nodejs.org/
 
 ## Step 2: Set Up the Project
 
-1. **Create a project folder**
-   ```bash
-   mkdir aurum-payroll
-   cd aurum-payroll
-   ```
-
-2. **Copy these files into the folder:**
-   - `server.js` (backend)
-   - `package.json` (dependencies)
-   - `index.html` (frontend)
-   - `README.md` (documentation)
-
-3. **Install dependencies**
+1. Open a terminal in the project folder.
+2. **Install dependencies**
    ```bash
    npm install
    ```
-   This will install: express, sqlite3, bcryptjs, jsonwebtoken, cors
+3. **Configure local secrets.** A local `.env` file is provided. If it is missing, copy `env.example` to `.env`, then replace `JWT_SECRET` and `ADMIN_PASSWORD` with random values. The admin password must contain at least 16 characters. Generate each value with:
+   ```bash
+   node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+   ```
+   Never commit `.env` or share its contents.
+
+This version uses SQLite. The database file is created automatically at `DB_PATH` (default: `./aurum_payroll.db`). MySQL and Microsoft SQL Server are not configured yet.
 
 ## Step 3: Start the Backend Server
 
@@ -36,38 +31,15 @@ Download and install from: https://nodejs.org/
 npm start
 ```
 
-You should see:
-```
-╔════════════════════════════════════════════╗
-║   🏆 AURUM PAYROLL BACKEND SERVER          ║
-║                                            ║
-║   Server running on: http://localhost:3000 ║
-║   API endpoint: http://localhost:3000/api  ║
-║                                            ║
-║   Default Login:                           ║
-║   Email: admin@aurum.io                    ║
-║   Password: admin123                       ║
-╚════════════════════════════════════════════╝
-```
+The API listens on `http://localhost:3000`. Sign in with the `ADMIN_EMAIL` and `ADMIN_PASSWORD` values from `.env`; there are no shared default credentials.
 
-## Step 4: Open the Frontend
+## Step 4: Open the App
 
-### Option A: Simple (Double-click)
-- Just double-click `index.html` in your file explorer
-- It will open in your default browser
-
-### Option B: Local Server (Recommended)
-```bash
-# In a NEW terminal window (keep server running in first one)
-npx http-server -p 8080
-```
-Then open: http://localhost:8080
+Open http://localhost:3000 in your browser. The Express server serves the frontend and API from the same origin.
 
 ## Step 5: Login and Test
 
-1. **Login with:**
-   - Email: `admin@aurum.io`
-   - Password: `admin123`
+1. **Login** with `ADMIN_EMAIL` and `ADMIN_PASSWORD` from `.env`.
 
 2. **Try these features:**
    - Toggle dark/light mode (top-right button)
@@ -118,9 +90,7 @@ Be ready to explain:
 **Fix:** Run `npm install` in the project folder
 
 ### Issue: "Port 3000 already in use"
-**Fix:** 
-- Change port in `server.js`: `const PORT = 3001;`
-- Update `index.html` API_URL: `const API_URL = 'http://localhost:3001/api';`
+**Fix:** Set `PORT=3001` in `.env` and update the `API_URL` constant in `index.html` to use port `3001`.
 
 ### Issue: "Connection error" when logging in
 **Fix:** Make sure the backend server is running (`npm start`)
@@ -147,45 +117,12 @@ Be ready to explain:
 
 ## 🌐 Deploy to Production
 
-### Quick Deploy to Render (Free)
-
-1. **Create GitHub repo:**
-   ```bash
-   git init
-   git add .
-   git commit -m "Initial commit"
-   git remote add origin YOUR_REPO_URL
-   git push -u origin main
-   ```
-
-2. **Go to render.com:**
-   - Sign up/Login
-   - Click "New +" → "Web Service"
-   - Connect your GitHub repo
-   - Build Command: `npm install`
-   - Start Command: `npm start`
-   - Click "Create Web Service"
-
-3. **Deploy Frontend:**
-   - Go to render.com
-   - Click "New +" → "Static Site"
-   - Connect same repo
-   - Publish directory: `.` (root)
-   - Click "Create Static Site"
-
-4. **Update API URL:**
-   - In `index.html`, change:
-   ```javascript
-   const API_URL = 'https://your-backend-url.onrender.com/api';
-   ```
-   - Commit and push
-
-Your app is now live! 🎉
+Do not deploy this SQLite configuration to an ephemeral filesystem: the database may be lost on restart. Configure a persistent supported database and production secrets before deployment.
 
 ## 📝 Checklist Before Showing to Recruiters
 
 - [ ] Backend server starts without errors
-- [ ] Can login with demo credentials
+- [ ] Can log in with the administrator credentials configured in `.env`
 - [ ] Can add new employee
 - [ ] Can add new department
 - [ ] Dark/light mode toggle works

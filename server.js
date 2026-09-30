@@ -5,41 +5,84 @@ const jwt = require('jsonwebtoken');
 const cors = require('cors');
 const path = require('path');
 
+if (typeof process.loadEnvFile === 'function') {
+  process.loadEnvFile();
+}
+
 const app = express();
-const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+const PORT = Number(process.env.PORT || 3000);
+const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET || JWT_SECRET.length < 32) {
+  throw new Error('JWT_SECRET must be set to a random value of at least 32 characters.');
+}
 
 // Middleware
-app.use(cors());
-app.use(express.json());
-app.use(express.static('public'));
+const allowedOrigins = new Set(
+  (process.env.CORS_ORIGIN || 'http://localhost:8080,http://127.0.0.1:8080')
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean)
+);
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  next();
+});
+app.use(cors({
+  origin(origin, callback) {
+    callback(null, !origin || allowedOrigins.has(origin));
+  }
+}));
+app.use(express.json({ limit: '10kb' }));
+app.use(express.static(path.join(__dirname, 'public')));
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
 
-// Initialize SQLite Database
-const db = new sqlite3.Database('./aurum_payroll.db', (err) => {
+const dbPath = path.resolve(process.env.DB_PATH || 'aurum_payroll.db');
+const db = new sqlite3.Database(dbPath, (err) => {
   if (err) {
     console.error('Database connection error:', err);
+    process.exitCode = 1;
   } else {
     console.log('✓ Connected to SQLite database');
-    initializeDatabase();
+    initializeDatabase()
+      .then(startServer)
+      .catch(error => {
+        console.error('Database initialization error:', error.message);
+        db.close(() => {
+          process.exitCode = 1;
+        });
+      });
   }
 });
 
-// Create tables
-function initializeDatabase() {
-  db.serialize(() => {
-    // Users table
-    db.run(`CREATE TABLE IF NOT EXISTS users (
+function run(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.run(sql, params, function (err) {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(this);
+      }
+    });
+  });
+}
+
+async function initializeDatabase() {
+  const tables = [
+    `CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       email TEXT UNIQUE NOT NULL,
       password TEXT NOT NULL,
       first_name TEXT NOT NULL,
       last_name TEXT NOT NULL,
-      role TEXT DEFAULT 'admin',
+      role TEXT DEFAULT 'employee',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
-
-    // Employees table
-    db.run(`CREATE TABLE IF NOT EXISTS employees (
+    )`,
+    `CREATE TABLE IF NOT EXISTS employees (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       emp_id TEXT UNIQUE NOT NULL,
       first_name TEXT NOT NULL,
@@ -50,19 +93,15 @@ function initializeDatabase() {
       basic_salary REAL NOT NULL,
       status TEXT DEFAULT 'active',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
-
-    // Departments table
-    db.run(`CREATE TABLE IF NOT EXISTS departments (
+    )`,
+    `CREATE TABLE IF NOT EXISTS departments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT UNIQUE NOT NULL,
       head TEXT,
       budget REAL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
-
-    // Payslips table
-    db.run(`CREATE TABLE IF NOT EXISTS payslips (
+    )`,
+    `CREATE TABLE IF NOT EXISTS payslips (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       slip_id TEXT UNIQUE NOT NULL,
       employee_id INTEGER NOT NULL,
@@ -74,24 +113,31 @@ function initializeDatabase() {
       net_pay REAL NOT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (employee_id) REFERENCES employees(id)
-    )`);
+    )`
+  ];
 
-    // Create default admin user
-    const defaultPassword = bcrypt.hashSync('admin123', 10);
-    db.run(`INSERT OR IGNORE INTO users (email, password, first_name, last_name, role) 
-            VALUES ('admin@aurum.io', ?, 'Admin', 'User', 'super_admin')`, 
-            [defaultPassword], (err) => {
-      if (!err) {
-        console.log('✓ Default admin user created (email: admin@aurum.io, password: admin123)');
-      }
-    });
+  for (const table of tables) {
+    await run(table);
+  }
 
-    // Insert sample data
-    insertSampleData();
-  });
-}
+  const { ADMIN_EMAIL, ADMIN_PASSWORD } = process.env;
+  if ((ADMIN_EMAIL && !ADMIN_PASSWORD) || (!ADMIN_EMAIL && ADMIN_PASSWORD)) {
+    throw new Error('Set both ADMIN_EMAIL and ADMIN_PASSWORD to configure the administrator account.');
+  }
+  if (ADMIN_EMAIL && ADMIN_PASSWORD) {
+    if (ADMIN_PASSWORD.length < 16) {
+      throw new Error('ADMIN_PASSWORD must contain at least 16 characters.');
+    }
+    await run("UPDATE users SET role = 'employee' WHERE role = 'admin'");
+    const hashedPassword = await bcrypt.hash(ADMIN_PASSWORD, 12);
+    await run(`INSERT INTO users (email, password, first_name, last_name, role)
+               VALUES (?, ?, 'Admin', 'User', 'super_admin')
+               ON CONFLICT(email) DO UPDATE SET password = excluded.password, role = 'super_admin'`,
+    [ADMIN_EMAIL.trim().toLowerCase(), hashedPassword]);
+  } else {
+    console.warn('No admin account configured. Set ADMIN_EMAIL and ADMIN_PASSWORD in .env.');
+  }
 
-function insertSampleData() {
   const departments = [
     ['Engineering', 'Marcus Kim', 85000],
     ['Sales', 'James Donovan', 120000],
@@ -100,9 +146,9 @@ function insertSampleData() {
     ['HR', 'Priya Lal', 65000]
   ];
 
-  const stmt = db.prepare('INSERT OR IGNORE INTO departments (name, head, budget) VALUES (?, ?, ?)');
-  departments.forEach(dept => stmt.run(dept));
-  stmt.finalize();
+  for (const department of departments) {
+    await run('INSERT OR IGNORE INTO departments (name, head, budget) VALUES (?, ?, ?)', department);
+  }
 
   const employees = [
     ['EMP-001', 'James', 'Donovan', 'james.donovan@aurum.io', 'Sales', 'Senior Sales Manager', 5200],
@@ -113,9 +159,11 @@ function insertSampleData() {
     ['EMP-006', 'Priya', 'Lal', 'priya.lal@aurum.io', 'HR', 'HR Specialist', 3900]
   ];
 
-  const empStmt = db.prepare('INSERT OR IGNORE INTO employees (emp_id, first_name, last_name, email, department, position, basic_salary) VALUES (?, ?, ?, ?, ?, ?, ?)');
-  employees.forEach(emp => empStmt.run(emp));
-  empStmt.finalize();
+  for (const employee of employees) {
+    await run(`INSERT OR IGNORE INTO employees
+               (emp_id, first_name, last_name, email, department, position, basic_salary)
+               VALUES (?, ?, ?, ?, ?, ?, ?)`, employee);
+  }
 }
 
 // ==================== AUTH MIDDLEWARE ====================
@@ -136,21 +184,43 @@ function authenticateToken(req, res, next) {
   });
 }
 
+function requireAdmin(req, res, next) {
+  db.get('SELECT role FROM users WHERE id = ?', [req.user.id], (err, user) => {
+    if (err) {
+      return res.status(500).json({ error: 'Failed to verify user permissions' });
+    }
+    if (!user || !['admin', 'super_admin'].includes(user.role)) {
+      return res.status(403).json({ error: 'Administrator access required' });
+    }
+    req.user.role = user.role;
+    next();
+  });
+}
+
+function isNonEmptyText(value) {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
 // ==================== AUTH ROUTES ====================
 
 // Register new user
 app.post('/api/auth/register', async (req, res) => {
   const { email, password, first_name, last_name } = req.body;
 
-  if (!email || !password || !first_name || !last_name) {
+  if (![email, first_name, last_name].every(isNonEmptyText) ||
+      typeof password !== 'string' || password.length < 12) {
+    return res.status(400).json({ error: 'Provide a valid email, names, and a password of at least 12 characters' });
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
     return res.status(400).json({ error: 'All fields are required' });
   }
 
   try {
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(password, 12);
     
-    db.run(`INSERT INTO users (email, password, first_name, last_name) VALUES (?, ?, ?, ?)`,
-      [email, hashedPassword, first_name, last_name],
+    db.run(`INSERT INTO users (email, password, first_name, last_name, role) VALUES (?, ?, ?, ?, 'employee')`,
+      [email.trim().toLowerCase(), hashedPassword, first_name.trim(), last_name.trim()],
       function(err) {
         if (err) {
           if (err.message.includes('UNIQUE')) {
@@ -177,7 +247,7 @@ app.post('/api/auth/login', (req, res) => {
     return res.status(400).json({ error: 'Email and password required' });
   }
 
-  db.get('SELECT * FROM users WHERE email = ?', [email], async (err, user) => {
+  db.get('SELECT * FROM users WHERE email = ?', [email.trim().toLowerCase()], async (err, user) => {
     if (err) {
       return res.status(500).json({ error: 'Server error' });
     }
@@ -225,7 +295,10 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
   db.get('SELECT id, email, first_name, last_name, role FROM users WHERE id = ?', 
     [req.user.id], 
     (err, user) => {
-      if (err || !user) {
+      if (err) {
+        return res.status(500).json({ error: 'Failed to fetch user' });
+      }
+      if (!user) {
         return res.status(404).json({ error: 'User not found' });
       }
       res.json(user);
@@ -236,7 +309,7 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
 // ==================== EMPLOYEE ROUTES ====================
 
 // Get all employees
-app.get('/api/employees', authenticateToken, (req, res) => {
+app.get('/api/employees', authenticateToken, requireAdmin, (req, res) => {
   db.all('SELECT * FROM employees WHERE status = "active" ORDER BY created_at DESC', 
     (err, rows) => {
       if (err) {
@@ -248,7 +321,7 @@ app.get('/api/employees', authenticateToken, (req, res) => {
 });
 
 // Get single employee
-app.get('/api/employees/:id', authenticateToken, (req, res) => {
+app.get('/api/employees/:id', authenticateToken, requireAdmin, (req, res) => {
   db.get('SELECT * FROM employees WHERE id = ?', [req.params.id], (err, row) => {
     if (err) {
       return res.status(500).json({ error: 'Failed to fetch employee' });
@@ -261,16 +334,24 @@ app.get('/api/employees/:id', authenticateToken, (req, res) => {
 });
 
 // Create employee
-app.post('/api/employees', authenticateToken, (req, res) => {
+app.post('/api/employees', authenticateToken, requireAdmin, (req, res) => {
   const { first_name, last_name, email, department, position, basic_salary } = req.body;
+
+  if (![first_name, last_name, email, department, position].every(isNonEmptyText) ||
+      !Number.isFinite(Number(basic_salary)) || Number(basic_salary) < 0) {
+    return res.status(400).json({ error: 'Provide employee details and a non-negative salary' });
+  }
   
   // Generate employee ID
   db.get('SELECT COUNT(*) as count FROM employees', (err, result) => {
+    if (err || !result) {
+      return res.status(500).json({ error: 'Failed to create employee' });
+    }
     const empId = `EMP-${String(result.count + 1).padStart(3, '0')}`;
     
     db.run(`INSERT INTO employees (emp_id, first_name, last_name, email, department, position, basic_salary) 
             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [empId, first_name, last_name, email, department, position, basic_salary],
+      [empId, first_name.trim(), last_name.trim(), email.trim().toLowerCase(), department.trim(), position.trim(), Number(basic_salary)],
       function(err) {
         if (err) {
           if (err.message.includes('UNIQUE')) {
@@ -289,13 +370,18 @@ app.post('/api/employees', authenticateToken, (req, res) => {
 });
 
 // Update employee
-app.put('/api/employees/:id', authenticateToken, (req, res) => {
+app.put('/api/employees/:id', authenticateToken, requireAdmin, (req, res) => {
   const { first_name, last_name, email, department, position, basic_salary } = req.body;
+
+  if (![first_name, last_name, email, department, position].every(isNonEmptyText) ||
+      !Number.isFinite(Number(basic_salary)) || Number(basic_salary) < 0) {
+    return res.status(400).json({ error: 'Provide employee details and a non-negative salary' });
+  }
   
   db.run(`UPDATE employees 
           SET first_name = ?, last_name = ?, email = ?, department = ?, position = ?, basic_salary = ?
           WHERE id = ?`,
-    [first_name, last_name, email, department, position, basic_salary, req.params.id],
+    [first_name.trim(), last_name.trim(), email.trim().toLowerCase(), department.trim(), position.trim(), Number(basic_salary), req.params.id],
     function(err) {
       if (err) {
         return res.status(500).json({ error: 'Failed to update employee' });
@@ -309,7 +395,7 @@ app.put('/api/employees/:id', authenticateToken, (req, res) => {
 });
 
 // Delete employee (soft delete)
-app.delete('/api/employees/:id', authenticateToken, (req, res) => {
+app.delete('/api/employees/:id', authenticateToken, requireAdmin, (req, res) => {
   db.run('UPDATE employees SET status = "inactive" WHERE id = ?', 
     [req.params.id],
     function(err) {
@@ -326,7 +412,7 @@ app.delete('/api/employees/:id', authenticateToken, (req, res) => {
 
 // ==================== DEPARTMENT ROUTES ====================
 
-app.get('/api/departments', authenticateToken, (req, res) => {
+app.get('/api/departments', authenticateToken, requireAdmin, (req, res) => {
   db.all('SELECT * FROM departments ORDER BY name', (err, rows) => {
     if (err) {
       return res.status(500).json({ error: 'Failed to fetch departments' });
@@ -335,11 +421,16 @@ app.get('/api/departments', authenticateToken, (req, res) => {
   });
 });
 
-app.post('/api/departments', authenticateToken, (req, res) => {
+app.post('/api/departments', authenticateToken, requireAdmin, (req, res) => {
   const { name, head, budget } = req.body;
+
+  if (!isNonEmptyText(name) || (budget !== undefined && budget !== null &&
+      (!Number.isFinite(Number(budget)) || Number(budget) < 0))) {
+    return res.status(400).json({ error: 'Provide a department name and a non-negative budget' });
+  }
   
   db.run('INSERT INTO departments (name, head, budget) VALUES (?, ?, ?)',
-    [name, head, budget],
+    [name.trim(), isNonEmptyText(head) ? head.trim() : null, budget === undefined ? null : Number(budget)],
     function(err) {
       if (err) {
         if (err.message.includes('UNIQUE')) {
@@ -357,7 +448,7 @@ app.post('/api/departments', authenticateToken, (req, res) => {
 
 // ==================== PAYSLIP ROUTES ====================
 
-app.get('/api/payslips', authenticateToken, (req, res) => {
+app.get('/api/payslips', authenticateToken, requireAdmin, (req, res) => {
   const query = `
     SELECT p.*, e.first_name, e.last_name, e.department, e.position
     FROM payslips p
@@ -375,48 +466,49 @@ app.get('/api/payslips', authenticateToken, (req, res) => {
 
 // ==================== DASHBOARD STATS ====================
 
-app.get('/api/stats/dashboard', authenticateToken, (req, res) => {
-  const stats = {};
-  
-  db.get('SELECT COUNT(*) as total FROM employees WHERE status = "active"', (err, result) => {
-    stats.totalEmployees = result?.total || 0;
-    
-    db.get('SELECT COUNT(*) as total FROM departments', (err, result) => {
-      stats.totalDepartments = result?.total || 0;
-      
-      db.get('SELECT SUM(basic_salary) as total FROM employees WHERE status = "active"', (err, result) => {
-        stats.totalPayroll = result?.total || 0;
-        
-        res.json(stats);
-      });
-    });
+app.get('/api/stats/dashboard', authenticateToken, requireAdmin, (req, res) => {
+  db.get(`SELECT
+            (SELECT COUNT(*) FROM employees WHERE status = 'active') AS totalEmployees,
+            (SELECT COUNT(*) FROM departments) AS totalDepartments,
+            (SELECT COALESCE(SUM(basic_salary), 0) FROM employees WHERE status = 'active') AS totalPayroll`,
+  (err, stats) => {
+    if (err) {
+      return res.status(500).json({ error: 'Failed to fetch dashboard statistics' });
+    }
+    res.json(stats);
   });
 });
 
 // ==================== START SERVER ====================
 
-app.listen(PORT, () => {
-  console.log(`
+let server;
+function startServer() {
+  server = app.listen(PORT, () => {
+    console.log(`
 ╔════════════════════════════════════════════╗
 ║   🏆 AURUM PAYROLL BACKEND SERVER          ║
 ║                                            ║
 ║   Server running on: http://localhost:${PORT}  ║
 ║   API endpoint: http://localhost:${PORT}/api    ║
 ║                                            ║
-║   Default Login:                           ║
-║   Email: admin@aurum.io                    ║
-║   Password: admin123                       ║
 ╚════════════════════════════════════════════╝
   `);
-});
+  });
+}
 
 // Graceful shutdown
-process.on('SIGINT', () => {
+function shutdown() {
+  if (server) {
+    server.close();
+  }
   db.close((err) => {
     if (err) {
       console.error(err.message);
+      process.exitCode = 1;
     }
     console.log('\n✓ Database connection closed');
-    process.exit(0);
   });
-});
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

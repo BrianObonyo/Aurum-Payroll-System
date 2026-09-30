@@ -59,11 +59,7 @@ The server will start on `http://localhost:3000`
 - Open `index.html` in your browser
 - Or use a local server: `npx http-server -p 8080`
 
-5. **Login with default credentials**
-```
-Email: admin@aurum.io
-Password: admin123
-```
+5. **Login with the administrator credentials configured in `.env`**
 
 ## 📁 Project Structure
 
