@@ -3,10 +3,12 @@ const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
+const fs = require('fs');
 const path = require('path');
 
-if (typeof process.loadEnvFile === 'function') {
-  process.loadEnvFile();
+const envFile = path.join(__dirname, '.env');
+if (typeof process.loadEnvFile === 'function' && fs.existsSync(envFile)) {
+  process.loadEnvFile(envFile);
 }
 
 const app = express();
@@ -177,7 +179,7 @@ function authenticateToken(req, res, next) {
 
   jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) {
-      return res.status(403).json({ error: 'Invalid or expired token' });
+      return res.status(401).json({ error: 'Invalid or expired token' });
     }
     req.user = user;
     next();
@@ -430,7 +432,7 @@ app.post('/api/departments', authenticateToken, requireAdmin, (req, res) => {
   }
   
   db.run('INSERT INTO departments (name, head, budget) VALUES (?, ?, ?)',
-    [name.trim(), isNonEmptyText(head) ? head.trim() : null, budget === undefined ? null : Number(budget)],
+    [name.trim(), isNonEmptyText(head) ? head.trim() : null, budget == null || budget === '' ? null : Number(budget)],
     function(err) {
       if (err) {
         if (err.message.includes('UNIQUE')) {
