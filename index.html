@@ -817,11 +817,7 @@ tbody tr:hover{background:var(--surface2);}
           <div class="ff">
             <label>Department</label>
             <select id="emp-department" required>
-              <option>Engineering</option>
-              <option>Sales</option>
-              <option>Operations</option>
-              <option>Finance</option>
-              <option>HR</option>
+              <option value="">Loading departments...</option>
             </select>
           </div>
           <div class="ff">
@@ -994,13 +990,16 @@ async function fetchAPI(endpoint, options = {}) {
       ...options.headers
     }
   });
-  
+
+  const data = await response.json();
   if (response.status === 401) {
     doLogout();
-    throw new Error('Unauthorized');
   }
-  
-  return response.json();
+  if (!response.ok) {
+    throw new Error(data.error || `Request failed (${response.status})`);
+  }
+
+  return data;
 }
 
 async function loadDashboardData() {
@@ -1041,19 +1040,20 @@ async function loadEmployees() {
       "'": '&#39;'
     })[character]);
 
-    const renderRow = (emp) => `
+    const renderRow = (emp, includeEmail = false) => `
       <tr>
         <td style="color:var(--muted);font-size:11px;font-family:monospace;">${escapeHtml(emp.emp_id)}</td>
         <td style="color:var(--text);font-weight:500;">${escapeHtml(emp.first_name)} ${escapeHtml(emp.last_name)}</td>
-        <td style="color:var(--text2);">${escapeHtml(emp.email || emp.department)}</td>
+        ${includeEmail ? `<td style="color:var(--text2);">${escapeHtml(emp.email)}</td>` : ''}
+        <td style="color:var(--text2);">${escapeHtml(emp.department)}</td>
         <td style="color:var(--muted2);">${escapeHtml(emp.position)}</td>
         <td style="font-weight:600;">$${Number(emp.basic_salary || 0).toLocaleString()}</td>
-        <td><span class="stat-trend up" style="font-size:9px;">Active</span></td>
+        ${includeEmail ? '' : '<td><span class="stat-trend up" style="font-size:9px;">Active</span></td>'}
       </tr>
     `;
     
-    tbody.innerHTML = employees.slice(0, 5).map(renderRow).join('');
-    allTbody.innerHTML = employees.map(renderRow).join('');
+    tbody.innerHTML = employees.slice(0, 5).map(employee => renderRow(employee)).join('');
+    allTbody.innerHTML = employees.map(employee => renderRow(employee, true)).join('');
   } catch (error) {
     console.error('Failed to load employees:', error);
   }
@@ -1063,6 +1063,16 @@ async function loadDepartments() {
   try {
     const departments = await fetchAPI('/departments');
     const tbody = document.getElementById('departments-tbody');
+    const departmentSelect = document.getElementById('emp-department');
+
+    departmentSelect.replaceChildren();
+    if (departments.length === 0) {
+      departmentSelect.add(new Option('Create a department first', ''));
+    } else {
+      departments.forEach(department => {
+        departmentSelect.add(new Option(department.name, department.name));
+      });
+    }
     
     if (departments.length === 0) {
       tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:40px;color:var(--muted);">No departments found</td></tr>';
@@ -1123,7 +1133,9 @@ async function handleAddDepartment(e) {
   const data = {
     name: document.getElementById('dept-name').value,
     head: document.getElementById('dept-head').value,
-    budget: parseFloat(document.getElementById('dept-budget').value) || 0
+    budget: document.getElementById('dept-budget').value === ''
+      ? null
+      : parseFloat(document.getElementById('dept-budget').value)
   };
   
   try {
