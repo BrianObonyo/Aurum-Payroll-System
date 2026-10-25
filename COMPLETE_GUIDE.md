@@ -9,7 +9,11 @@ Aurum Payroll is a small payroll administration demo. An administrator can sign 
 | File | Responsibility |
 | --- | --- |
 | `server.js` | Express app, authentication, SQLite schema, seed data, and API routes |
-| `index.html` | Single-page interface, styles, and browser-side API calls |
+| `index.html` | Vite HTML entry point for the React client |
+| `src/main.tsx` | React application bootstrap |
+| `src/App.tsx` | Typed dashboard, employee, department, account, and dialog UI |
+| `src/styles.css` | Application styling and light/dark themes |
+| `vite.config.ts` | Vite development API proxy and production build settings |
 | `env.example` | Template for local server configuration |
 | `screenshots/` | Example UI screenshots displayed in the README |
 
@@ -50,13 +54,13 @@ The administrator account is configured with `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
 
 ## Implemented UI and known gaps
 
-The UI includes employee and department tables, employee and department creation forms, dashboard totals, mobile navigation, and a persisted light/dark theme. Employee update and deactivation are available through the API but do not have controls in the current UI.
+The React UI includes employee and department tables, employee creation/editing/deactivation, department creation, dashboard totals by department, employee CSV export, mobile navigation, and a persisted light/dark theme.
 
 The payslips page is a placeholder. The account page's profile fields are not connected to an update endpoint. The dashboard chart uses fixed sample values, and the export control is not wired up. These are unfinished features, not working capabilities.
 
 ## Running locally
 
-Follow [SETUP.md](SETUP.md) to install dependencies, configure `.env`, and start the server. Use generated local credentials; do not add real employee or payroll information to the demo database.
+Follow [SETUP.md](SETUP.md) to install dependencies, configure `.env`, run the Vite/Express development servers, and build the production client. The production Express server serves the compiled frontend from `dist/`. Use generated local credentials; do not add real employee or payroll information to the demo database.
 
 ## Before production use
 

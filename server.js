@@ -38,10 +38,7 @@ app.use(cors({
   }
 }));
 app.use(express.json({ limit: '10kb' }));
-app.use(express.static(path.join(__dirname, 'public')));
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
-});
+app.use(express.static(path.join(__dirname, 'dist')));
 
 const dbPath = path.resolve(process.env.DB_PATH || 'aurum_payroll.db');
 const db = new sqlite3.Database(dbPath, (err) => {
